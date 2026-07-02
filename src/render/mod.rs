@@ -6179,7 +6179,7 @@ impl From<&CachedPipelineState> for ComputePipelineError {
     fn from(value: &CachedPipelineState) -> Self {
         match value {
             CachedPipelineState::Queued => Self::Queued,
-            CachedPipelineState::Creating(_) => Self::Creating,
+            CachedPipelineState::Creating(..) => Self::Creating,
             CachedPipelineState::Err(_) => Self::Error,
             _ => panic!("Trying to convert Ok state to error."),
         }
