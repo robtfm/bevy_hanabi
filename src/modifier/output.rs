@@ -441,7 +441,7 @@ impl RenderModifier for SizeOverLifetimeModifier {
         );
 
         context.vertex_code += &format!(
-            "size = {0}(particle.{1} / particle.{2});\n",
+            "size *= {0}(particle.{1} / particle.{2});\n",
             func_name,
             Attribute::AGE.name(),
             Attribute::LIFETIME.name()
