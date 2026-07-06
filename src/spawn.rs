@@ -232,6 +232,9 @@ pub struct SpawnerSettings {
 
     /// Whether the [`EffectSpawner`] immediately starts emitting particles.
     emit_on_start: bool,
+
+    /// Time of the first emission
+    first_emission: f32,
 }
 
 impl Default for SpawnerSettings {
@@ -301,6 +304,7 @@ impl SpawnerSettings {
             cycle_count,
             starts_active: true,
             emit_on_start: true,
+            first_emission: 0.,
         }
     }
 
@@ -555,6 +559,17 @@ impl SpawnerSettings {
     pub fn starts_active(&self) -> bool {
         self.starts_active
     }
+
+    /// Time it takes for the first emission to occur
+    pub fn with_first_emission(mut self, first_emission: f32) -> Self {
+        self.first_emission = first_emission;
+        self
+    }
+
+    /// Time it takes for the first emission to occur
+    pub fn first_emission(&mut self, first_emission: f32) {
+        self.first_emission = first_emission;
+    }
 }
 
 /// Runtime state machine for CPU particle spawning.
@@ -587,6 +602,11 @@ pub struct EffectSpawner {
     /// The spawner settings extracted from the [`EffectAsset`], or directly
     /// overriden by the user.
     pub settings: SpawnerSettings,
+
+    /// If [`SpawnerSettings`] has [`first_emission`](SpawnerSettings::first_emission)
+    /// greater than zero, then the first emission will only occur when that amount
+    /// of time has passed
+    waiting_first_cycle: bool,
 
     /// Accumulated time for the current (partial) cycle, in seconds.
     cycle_time: f32,
@@ -639,6 +659,7 @@ impl EffectSpawner {
     pub fn new(settings: &SpawnerSettings) -> Self {
         Self {
             settings: *settings,
+            waiting_first_cycle: settings.first_emission > 0.,
             cycle_time: 0.,
             completed_cycle_count: if settings.emit_on_start || settings.is_forever() {
                 // Infinitely repeating effects always start at cycle #0.
@@ -784,6 +805,16 @@ impl EffectSpawner {
         {
             self.spawn_count = 0;
             return 0;
+        }
+
+        if self.waiting_first_cycle {
+            self.cycle_time += dt;
+            if self.cycle_time >= self.settings.first_emission {
+                self.cycle_time -= self.settings.first_emission;
+                self.waiting_first_cycle = false;
+            } else {
+                return 0;
+            }
         }
 
         // Use a loop in case the timestep dt spans multiple cycles
