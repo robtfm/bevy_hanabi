@@ -164,6 +164,9 @@ name = "puffs"
 [[example]]
 name = "delayed_start"
 
+[[example]]
+name = "faulty_emission"
+
 [[test]]
 name = "empty_effect"
 path = "gpu_tests/empty_effect.rs"

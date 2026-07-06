@@ -1,0 +1,1 @@
+This example shows how have an emiter that might fail on some cycles

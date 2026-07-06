@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use bevy::{ecs::resource::Resource, log::trace, math::FloatOrd, prelude::*, reflect::Reflect};
 use rand::{
     distributions::{uniform::SampleUniform, Distribution, Uniform},
-    SeedableRng,
+    Rng, SeedableRng,
 };
 use rand_pcg::Pcg32;
 use serde::{Deserialize, Serialize};
@@ -235,6 +235,14 @@ pub struct SpawnerSettings {
 
     /// Time of the first emission
     first_emission: f32,
+
+    /// Probability that a cycle will emit, must be in the range [0.0, 1.0].
+    /// Default is `1.0`.
+    ///
+    /// * `1.0`: always emit
+    /// * `0.5`: half of the cycles will emit
+    /// * `0.0`: no cycles will emit
+    probability: f32,
 }
 
 impl Default for SpawnerSettings {
@@ -305,6 +313,7 @@ impl SpawnerSettings {
             starts_active: true,
             emit_on_start: true,
             first_emission: 0.,
+            probability: 1.,
         }
     }
 
@@ -570,6 +579,23 @@ impl SpawnerSettings {
     pub fn first_emission(&mut self, first_emission: f32) {
         self.first_emission = first_emission;
     }
+
+    /// Probability that particles will be emitted in a cycle, useful for
+    /// intermitent bursts.
+    ///
+    /// Values will be clamped to [0.0, 1.0] range.
+    pub fn with_probability(mut self, probability: f32) -> Self {
+        self.probability = probability.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Probability that particles will be emitted in a cycle, useful for
+    /// intermitent bursts.
+    ///
+    /// Values will be clamped to [0.0, 1.0] range.
+    pub fn probability(&mut self, probability: f32) {
+        self.probability = probability.clamp(0.0, 1.0);
+    }
 }
 
 /// Runtime state machine for CPU particle spawning.
@@ -607,6 +633,11 @@ pub struct EffectSpawner {
     /// greater than zero, then the first emission will only occur when that amount
     /// of time has passed
     waiting_first_cycle: bool,
+
+    /// An [`SpawnerSettings`] might have a probability to skip a cycle
+    /// due to [`SpawnerSettings::probability`], so we keep track of the cycles
+    /// that have been skipped
+    cycle_skipped: bool,
 
     /// Accumulated time for the current (partial) cycle, in seconds.
     cycle_time: f32,
@@ -660,6 +691,7 @@ impl EffectSpawner {
         Self {
             settings: *settings,
             waiting_first_cycle: settings.first_emission > 0.,
+            cycle_skipped: false,
             cycle_time: 0.,
             completed_cycle_count: if settings.emit_on_start || settings.is_forever() {
                 // Infinitely repeating effects always start at cycle #0.
@@ -842,7 +874,7 @@ impl EffectSpawner {
             let new_time = self.cycle_time + dt;
 
             // If inside the spawn period, accumulate some particle spawn count
-            if self.cycle_time <= self.sampled_spawn_duration {
+            if self.cycle_time <= self.sampled_spawn_duration && !self.cycle_skipped {
                 // If the spawn time is very small, close to zero, spawn all particles
                 // immediately in one burst over a single frame.
                 self.spawn_remainder += if self.sampled_spawn_duration < 1e-5f32.max(dt / 100.0) {
@@ -868,6 +900,8 @@ impl EffectSpawner {
 
                 // Mark as "need resampling"
                 self.sampled_period = 0.0;
+
+                self.cycle_skipped = !rng.gen_bool(self.settings.probability as f64);
 
                 // If this was the last cycle, we're done
                 if !self.settings.is_forever()
