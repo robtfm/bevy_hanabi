@@ -842,6 +842,7 @@ impl EffectSpawner {
         if self.waiting_first_cycle {
             self.cycle_time += dt;
             if self.cycle_time >= self.settings.first_emission {
+                dt = self.cycle_time - self.settings.first_emission;
                 self.cycle_time -= self.settings.first_emission;
                 self.waiting_first_cycle = false;
             } else {
