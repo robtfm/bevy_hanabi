@@ -21,7 +21,6 @@ use bevy::{
             AlphaMask3d, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey, Transparent3d,
             CORE_3D_DEPTH_FORMAT,
         },
-        dof::{DepthOfField, TRANSPARENT_FOCUS_TEXTURE_FORMAT},
         prepass::{OpaqueNoLightmap3dBatchSetKey, OpaqueNoLightmap3dBinKey},
     },
     render::render_phase::{BinnedPhaseItem, ViewBinnedRenderPhases},
@@ -1868,10 +1867,6 @@ pub(crate) struct ParticleRenderPipelineKey {
     msaa_samples: u32,
     /// Is the camera using an HDR render target?
     hdr: bool,
-    /// The view has depth of field enabled, so the 3D transparent pass carries
-    /// an extra transparent-focus render target that this pipeline must
-    /// declare (but doesn't write to).
-    dof_focus: bool,
 }
 
 #[derive(Clone, Copy, Default, Hash, PartialEq, Eq, Debug)]
@@ -1905,7 +1900,6 @@ impl Default for ParticleRenderPipelineKey {
             pipeline_mode: PipelineMode::Camera3d,
             msaa_samples: Msaa::default().samples(),
             hdr: false,
-            dof_focus: false,
         }
     }
 }
@@ -2089,24 +2083,11 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 shader: key.shader,
                 shader_defs,
                 entry_point: "fragment".into(),
-                targets: {
-                    let mut targets = vec![Some(ColorTargetState {
-                        format,
-                        blend: Some(key.alpha_mode.into()),
-                        write_mask: ColorWrites::ALL,
-                    })];
-                    if key.dof_focus {
-                        // The 3D transparent pass carries an extra render
-                        // target for transparent focus depth when depth of
-                        // field is enabled; declare it without writing to it.
-                        targets.push(Some(ColorTargetState {
-                            format: TRANSPARENT_FOCUS_TEXTURE_FORMAT,
-                            blend: None,
-                            write_mask: ColorWrites::empty(),
-                        }));
-                    }
-                    targets
-                },
+                targets: vec![Some(ColorTargetState {
+                    format,
+                    blend: Some(key.alpha_mode.into()),
+                    write_mask: ColorWrites::ALL,
+                })],
             }),
             layout,
             primitive: PrimitiveState {
@@ -4842,12 +4823,7 @@ pub struct QueueEffectsReadOnlyParams<'w, 's> {
 }
 
 fn emit_sorted_draw<T, F>(
-    views: &Query<(
-        &RenderVisibleEntities,
-        &ExtractedView,
-        &Msaa,
-        Has<DepthOfField>,
-    )>,
+    views: &Query<(&RenderVisibleEntities, &ExtractedView, &Msaa)>,
     render_phases: &mut ResMut<ViewSortedRenderPhases<T>>,
     view_entities: &mut FixedBitSet,
     sorted_effect_batches: &SortedEffectBatches,
@@ -4857,9 +4833,6 @@ fn emit_sorted_draw<T, F>(
     render_meshes: &RenderAssets<RenderMesh>,
     pipeline_cache: &PipelineCache,
     make_phase_item: F,
-    // Whether this phase's render pass carries the transparent-focus target
-    // when the view has depth of field (3D transparent pass only).
-    use_dof_focus: bool,
     #[cfg(all(feature = "2d", feature = "3d"))] pipeline_mode: PipelineMode,
 ) where
     T: SortedPhaseItem,
@@ -4867,7 +4840,7 @@ fn emit_sorted_draw<T, F>(
 {
     trace!("emit_sorted_draw() {} views", views.iter().len());
 
-    for (visible_entities, view, msaa, has_dof) in views.iter() {
+    for (visible_entities, view, msaa) in views.iter() {
         trace!(
             "Process new sorted view with {} visible particle effect entities",
             visible_entities.len::<CompiledParticleEffect>()
@@ -5009,7 +4982,6 @@ fn emit_sorted_draw<T, F>(
                     pipeline_mode,
                     msaa_samples: msaa.samples(),
                     hdr: view.hdr,
-                    dof_focus: use_dof_focus && has_dof,
                 },
             );
             #[cfg(feature = "trace")]
@@ -5036,12 +5008,7 @@ fn emit_sorted_draw<T, F>(
 
 #[cfg(feature = "3d")]
 fn emit_binned_draw<T, F, G>(
-    views: &Query<(
-        &RenderVisibleEntities,
-        &ExtractedView,
-        &Msaa,
-        Has<DepthOfField>,
-    )>,
+    views: &Query<(&RenderVisibleEntities, &ExtractedView, &Msaa)>,
     render_phases: &mut ResMut<ViewBinnedRenderPhases<T>>,
     view_entities: &mut FixedBitSet,
     sorted_effect_batches: &SortedEffectBatches,
@@ -5064,7 +5031,7 @@ fn emit_binned_draw<T, F, G>(
 
     trace!("emit_binned_draw() {} views", views.iter().len());
 
-    for (visible_entities, view, msaa, _has_dof) in views.iter() {
+    for (visible_entities, view, msaa) in views.iter() {
         trace!("Process new binned view (alpha_mask={:?})", alpha_mask);
 
         let Some(render_phase) = render_phases.get_mut(&view.retained_view_entity) else {
@@ -5201,7 +5168,6 @@ fn emit_binned_draw<T, F, G>(
                     pipeline_mode,
                     msaa_samples: msaa.samples(),
                     hdr: view.hdr,
-                    dof_focus: false,
                 },
             );
             #[cfg(feature = "trace")]
@@ -5230,12 +5196,7 @@ fn emit_binned_draw<T, F, G>(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn queue_effects(
-    views: Query<(
-        &RenderVisibleEntities,
-        &ExtractedView,
-        &Msaa,
-        Has<DepthOfField>,
-    )>,
+    views: Query<(&RenderVisibleEntities, &ExtractedView, &Msaa)>,
     effects_meta: Res<EffectsMeta>,
     mut render_pipeline: ResMut<ParticlesRenderPipeline>,
     mut specialized_render_pipelines: ResMut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
@@ -5327,7 +5288,6 @@ pub(crate) fn queue_effects(
                     extra_index: PhaseItemExtraIndex::None,
                     indexed: true, // ???
                 },
-                false,
                 #[cfg(feature = "3d")]
                 PipelineMode::Camera2d,
             );
@@ -5371,7 +5331,6 @@ pub(crate) fn queue_effects(
                     extra_index: PhaseItemExtraIndex::None,
                     indexed: true, // ???
                 },
-                true,
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
             );
