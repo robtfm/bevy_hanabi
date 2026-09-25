@@ -2356,7 +2356,14 @@ pub(crate) fn extract_effects(
         )>,
     >,
     q_all_effects: Extract<Query<(&RenderEntity, &CompiledParticleEffect), With<GlobalTransform>>>,
+    q_changed_effects: Extract<
+        Query<
+            (Entity, &RenderEntity, &CompiledParticleEffect),
+            (Changed<CompiledParticleEffect>, With<GlobalTransform>),
+        >,
+    >,
     mut pending_effects: Local<Vec<MainEntity>>,
+    mut allocated_assets: Local<HashMap<Entity, AssetId<EffectAsset>>>,
     render_device: Res<RenderDevice>,
     debug_settings: Extract<Res<DebugSettings>>,
     default_mesh: Extract<Res<DefaultMesh>>,
@@ -2407,9 +2414,25 @@ pub(crate) fn extract_effects(
     sim_params.real_time = real_time.elapsed_secs_f64();
     sim_params.real_delta_time = real_time.delta_secs();
 
+    // Forget the allocations of despawned effects
+    allocated_assets.retain(|entity, _| q_all_effects.contains(*entity));
+
+    // An effect whose asset was swapped on the same entity needs a new GPU
+    // allocation for the new asset, since the particle layout and capacity may
+    // differ from those of the old one.
+    let swapped_effects = q_changed_effects
+        .iter()
+        .filter(|(entity, _, compiled_effect)| {
+            allocated_assets
+                .get(entity)
+                .is_some_and(|asset_id| *asset_id != compiled_effect.asset.id())
+        })
+        .collect::<Vec<_>>();
+
     // Collect added effects for later GPU data allocation
     extracted_effects.added_effects = q_added_effects
         .iter()
+        .chain(swapped_effects)
         .chain(mem::take(&mut *pending_effects).into_iter().filter_map(|main_entity| {
             q_all_effects.get(main_entity.id()).ok().map(|(render_entity, compiled_particle_effect)| {
                 (main_entity.id(), render_entity, compiled_particle_effect)
@@ -2460,6 +2483,7 @@ pub(crate) fn extract_effects(
             });
 
             trace!("Found new effect: entity {:?} | capacity {:?} | particle_layout {:?} | property_layout {:?} | layout_flags {:?}", entity, asset.capacity(), particle_layout, property_layout, compiled_effect.layout_flags);
+            allocated_assets.insert(entity, compiled_effect.asset.id());
             Some(AddedEffect {
                 entity: MainEntity::from(entity),
                 render_entity: *render_entity,
@@ -2781,6 +2805,10 @@ impl EffectsMeta {
                 added_effect.layout_flags,
             );
             let mut cmd = commands.entity(added_effect.render_entity.id());
+            // If the effect asset was swapped, the render entity still holds the
+            // allocation for the old asset. Removing it triggers the observers which
+            // free it, before the new allocation is inserted.
+            cmd.remove::<(CachedEffect, CachedEffectProperties)>();
             cmd.insert((
                 added_effect.entity,
                 cached_effect,
