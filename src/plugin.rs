@@ -229,7 +229,10 @@ impl Plugin for HanabiPlugin {
                 PostUpdate,
                 (
                     tick_spawners.in_set(EffectSystems::TickSpawners),
-                    (check_effect_asset_changes, compile_effects)
+                    (
+                        check_effect_asset_changes.run_if(on_event::<AssetEvent<EffectAsset>>),
+                        compile_effects,
+                    )
                         .chain()
                         .in_set(EffectSystems::CompileEffects),
                     update_properties_from_asset.in_set(EffectSystems::UpdatePropertiesFromAsset),
