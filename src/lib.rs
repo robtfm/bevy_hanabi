@@ -1662,6 +1662,25 @@ impl ShaderCode for Gradient<Vec4> {
     }
 }
 
+fn check_effect_asset_changes(
+    mut asset_event_reader: EventReader<AssetEvent<EffectAsset>>,
+    particle_effects: Query<&mut ParticleEffect>,
+    mut scratch_set: Local<HashSet<AssetId<EffectAsset>>>,
+) {
+    scratch_set.extend(asset_event_reader.read().filter_map(|event| match event {
+        AssetEvent::Modified { id } => Some(*id),
+        _ => None,
+    }));
+
+    for mut particle_effect in particle_effects {
+        if scratch_set.contains(&particle_effect.handle.id()) {
+            particle_effect.set_changed();
+        }
+    }
+
+    scratch_set.clear();
+}
+
 /// Compile all the [`ParticleEffect`] components into a
 /// [`CompiledParticleEffect`].
 ///
