@@ -72,12 +72,15 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     seed = pcg_hash(particle_index ^ spawner.seed);
 
     var particle: Particle = particle_buffer.particles[particle_index];
+    #ifndef PAUSED
     {{AGE_CODE}}
     {{REAP_CODE}}
     {{UPDATE_CODE}}
+    #endif // PAUSED
 
     {{WRITEBACK_CODE}}
 
+    #ifndef PAUSED
     // Check if alive
     if (!is_alive) {
         // Save dead index
@@ -89,8 +92,11 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         atomicAdd(&effect_metadata.max_spawn, 1u);
         atomicSub(&effect_metadata.alive_count, 1u);
     } else {
+    #endif // PAUSED
         // Increment alive particle count and write indirection index for later rendering
         let indirect_index = atomicAdd(&effect_metadata.instance_count, 1u);
         indirect_buffer.indices[3u * indirect_index + write_index] = particle_index;
+    #ifndef PAUSED
     }
+    #endif // PAUSED
 }

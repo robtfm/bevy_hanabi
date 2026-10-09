@@ -1463,6 +1463,7 @@ bitflags! {
         const ATTRIBUTE_PREV = (1u8 << 1);
         const ATTRIBUTE_NEXT = (1u8 << 2);
         const CONSUME_GPU_SPAWN_EVENTS = (1u8 << 3);
+        const PAUSED = (1u8 << 4);
     }
 }
 
@@ -1522,6 +1523,9 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
             shader_defs.push("READ_PARENT_PARTICLE".into());
         } else {
             assert!(!consume_gpu_spawn_events);
+        }
+        if key.flags.contains(ParticleInitPipelineKeyFlags::PAUSED) {
+            shader_defs.push("PAUSED".into());
         }
 
         // This should always be valid when specialize() is called, by design. This is
@@ -1633,6 +1637,8 @@ pub(crate) struct ParticleUpdatePipelineKey {
     /// Layout of the metadata@3 bind group this pipeline was specialized with.
     // Note: can't directly store BindGroupLayout because it's not Eq nor Hash
     metadata_bind_group_layout_id: BindGroupLayoutId,
+    /// Paused effect do not run init or update, only render
+    paused: bool,
 }
 
 impl SpecializedComputePipeline for ParticlesUpdatePipeline {
@@ -1659,6 +1665,9 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
         }
         if key.num_event_buffers > 0 {
             shader_defs.push("EMITS_GPU_SPAWN_EVENTS".into());
+        }
+        if key.paused {
+            shader_defs.push("PAUSED".into());
         }
 
         // This should always be valid when specialize() is called, by design. This is
@@ -2166,6 +2175,8 @@ pub(crate) struct ExtractedEffect {
     /// This is ignored if the effect is a child effect consuming GPU spawn
     /// events.
     pub spawn_count: u32,
+    /// Paused effects do not init new particles or update existing ones.
+    pub paused: bool,
     /// PRNG seed.
     pub prng_seed: u32,
     /// Global transform of the effect origin.
@@ -2567,6 +2578,7 @@ pub(crate) fn extract_effects(
             property_layout,
             property_data,
             spawn_count: effect_spawner.spawn_count,
+            paused: effect_spawner.paused,
             prng_seed: compiled_effect.prng_seed,
             transform: *transform,
             layout_flags,
@@ -3892,6 +3904,7 @@ pub(crate) fn prepare_effects(
                     particle_bind_group_layout_id,
                     spawner_bind_group_layout_id,
                     metadata_bind_group_layout_id,
+                    paused: extracted_effect.paused,
                 },
             );
             // keep things tidy; this is just a hack, should not persist
