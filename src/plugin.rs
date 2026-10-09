@@ -23,7 +23,7 @@ use bevy::{
 use crate::asset::EffectAssetLoader;
 use crate::{
     asset::{DefaultMesh, EffectAsset},
-    compile_effects,
+    check_effect_asset_changes, compile_effects,
     properties::EffectProperties,
     render::{
         add_effects, batch_effects, clear_transient_batch_inputs, extract_effect_events,
@@ -229,7 +229,9 @@ impl Plugin for HanabiPlugin {
                 PostUpdate,
                 (
                     tick_spawners.in_set(EffectSystems::TickSpawners),
-                    compile_effects.in_set(EffectSystems::CompileEffects),
+                    (check_effect_asset_changes, compile_effects)
+                        .chain()
+                        .in_set(EffectSystems::CompileEffects),
                     update_properties_from_asset.in_set(EffectSystems::UpdatePropertiesFromAsset),
                 ),
             );
