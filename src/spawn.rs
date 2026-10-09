@@ -230,6 +230,13 @@ pub struct SpawnerSettings {
     /// [`EffectSpawner::active`]: crate::EffectSpawner::active
     starts_active: bool,
 
+    /// Whether the [`EffectSpawner`] is paused at startup.
+    ///
+    /// The value is used to initialize [`EffectSpawner::paused`].
+    ///
+    /// [`EffectSpawner::paused`]: crate::EffectSpawner::paused
+    starts_paused: bool,
+
     /// Whether the [`EffectSpawner`] immediately starts emitting particles.
     emit_on_start: bool,
 
@@ -311,6 +318,7 @@ impl SpawnerSettings {
             period,
             cycle_count,
             starts_active: true,
+            starts_paused: false,
             emit_on_start: true,
             first_emission: 0.,
             probability: 1.,
@@ -569,6 +577,34 @@ impl SpawnerSettings {
         self.starts_active
     }
 
+    /// Sets whether the spawner starts paused when the effect is instantiated.
+    ///
+    /// This value will be transfered to the paused state of the
+    /// [`EffectSpawner`] once it's instantiated. Paused spawners do not spawn
+    /// any particle.
+    pub fn with_starts_paused(mut self, starts_paused: bool) -> Self {
+        self.starts_paused = starts_paused;
+        self
+    }
+
+    /// Set whether the spawner starts paused when the effect is instantiated.
+    ///
+    /// This value will be transfered to the paused state of the
+    /// [`EffectSpawner`] once it's instantiated. Paused spawners do not spawn
+    /// any particle.
+    pub fn set_starts_paused(&mut self, starts_paused: bool) {
+        self.starts_paused = starts_paused;
+    }
+
+    /// Get whether the spawner starts paused when the effect is instantiated.
+    ///
+    /// This value will be transfered to the paused state of the
+    /// [`EffectSpawner`] once it's instantiated. Paused spawners do not spawn
+    /// any particle.
+    pub fn starts_paused(&self) -> bool {
+        self.starts_paused
+    }
+
     /// Time it takes for the first emission to occur
     pub fn with_first_emission(mut self, first_emission: f32) -> Self {
         self.first_emission = first_emission;
@@ -683,6 +719,11 @@ pub struct EffectSpawner {
     /// [`SpawnerSettings::starts_active()`]. An inactive spawner
     /// doesn't tick (no particle spawned, no internal state updated).
     pub active: bool,
+
+    /// Whether the spawner is paused. Defaults to
+    /// [`SpawnerSettings::starts_paused()`]. A paused spawner
+    /// doesn't tick (no particle spawned, no internal state updated).
+    pub paused: bool,
 }
 
 impl EffectSpawner {
@@ -706,6 +747,7 @@ impl EffectSpawner {
             spawn_count: 0,
             spawn_remainder: 0.,
             active: settings.starts_active(),
+            paused: settings.starts_paused(),
         }
     }
 
@@ -832,6 +874,7 @@ impl EffectSpawner {
         // If inactive, or if the finite number of cycles has been completed, then we're
         // done.
         if !self.active
+            || self.paused
             || (!self.settings.is_forever()
                 && (self.completed_cycle_count >= self.settings.cycle_count()))
         {
